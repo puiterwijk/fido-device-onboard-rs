@@ -327,3 +327,18 @@ pub enum ErrorCode {
     CredReuseError = 102,
     InternalServerError = 500,
 }
+
+#[derive(Debug, Clone, Copy, Serialize_repr, Deserialize_repr, PartialEq, Eq)]
+#[repr(i8)]
+#[non_exhaustive]
+pub enum MfgStringType {
+    SerialNumber = 0,
+}
+
+#[derive(Debug, Clone, Copy, Serialize_repr, Deserialize_repr, PartialEq, Eq)]
+#[repr(i8)]
+#[non_exhaustive]
+pub enum KeyStorageType {
+    FileSystem = 0,
+    Tpm = 1,
+}

@@ -1,8 +1,8 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize, Serializer};
 use serde_tuple::Serialize_tuple;
 
-use super::Message;
-use crate::types::CborSimpleType;
+use super::{ClientMessage, Message, ServerMessage};
+use crate::types::{CborSimpleType, HMac};
 
 #[derive(Debug, Serialize_tuple, Deserialize)]
 pub struct AppStart {
@@ -25,26 +25,79 @@ impl Message for AppStart {
     }
 }
 
+impl ClientMessage for AppStart {}
+
 #[derive(Debug, Serialize_tuple, Deserialize)]
 pub struct SetCredentials {
-    //ov_header: OwnershipVoucherHeader,
-    ov_header: u8,
+    ov_header: Vec<u8>,
 }
 
 impl SetCredentials {
-    //pub fn new(ov_header: OwnershipVoucherHeader) -> Self {
-    pub fn new(ov_header: u8) -> Self {
+    pub fn new(ov_header: Vec<u8>) -> Self {
         SetCredentials { ov_header }
     }
 
-    //pub fn get_ov_header(&self) -> &OwnershipVoucherHeader {
-    pub fn get_ov_header(&self) -> u8 {
-        self.ov_header
+    pub fn get_ov_header(&self) -> &[u8] {
+        &self.ov_header
     }
 }
 
 impl Message for SetCredentials {
     fn message_type() -> u8 {
         11
+    }
+}
+
+impl ServerMessage for SetCredentials {}
+
+#[derive(Debug, Serialize_tuple, Deserialize)]
+pub struct SetHMAC {
+    hmac: HMac,
+}
+
+impl SetHMAC {
+    pub fn new(hmac: HMac) -> Self {
+        SetHMAC { hmac }
+    }
+
+    pub fn get_hmac(&self) -> &HMac {
+        &self.hmac
+    }
+}
+
+impl Message for SetHMAC {
+    fn message_type() -> u8 {
+        12
+    }
+}
+
+impl ClientMessage for SetHMAC {}
+
+#[derive(Debug, Deserialize)]
+pub struct Done {}
+
+impl Done {
+    pub fn new() -> Self {
+        Done {}
+    }
+}
+
+impl Message for Done {
+    fn message_type() -> u8 {
+        13
+    }
+}
+
+impl ServerMessage for Done {}
+
+// We can't use Serialize_tuple here because that doesn't work for empty things
+impl Serialize for Done {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        use serde::ser::SerializeSeq;
+        let seq = serializer.serialize_seq(Some(0))?;
+        seq.end()
     }
 }
