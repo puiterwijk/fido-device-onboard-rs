@@ -9,4 +9,5 @@ members = [
     "owner-tool",
     "rendezvous-server",
     "manufacturing-server",
+    "manufacturing-client",
 ]

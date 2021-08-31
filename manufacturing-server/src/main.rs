@@ -1,22 +1,20 @@
-use std::convert::TryFrom;
+use std::convert::{TryFrom, TryInto};
 use std::fs;
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Error, Result};
 use openssl::{
-    ec::{EcGroup, EcKey},
-    nid::Nid,
     pkey::{PKey, Private},
-    x509::{X509Builder, X509},
+    x509::X509,
 };
 use serde::Deserialize;
 use warp::Filter;
 
 use fdo_data_formats::{
+    constants::{KeyStorageType, MfgStringType},
     enhanced_types::X5Bag,
-    constants::{MfgStringType, KeyStorageType},
     ownershipvoucher::OwnershipVoucher,
     publickey::{PublicKey, PublicKeyBody},
     types::Guid,
@@ -27,14 +25,17 @@ mod handlers;
 
 struct DiunConfiguration {
     requires_attestation: bool,
-    allowed_key_types: Option<Vec<KeyTypes>>,
+    allowed_key_types: Vec<KeyTypes>,
+
+    diun_key: PKey<Private>,
+    diun_key_public: Vec<u8>,
 }
 
 struct ManufacturingServiceUD {
     // Stores
     session_store: Arc<fdo_http_wrapper::server::SessionStore>,
-    ownership_voucher_store: Box<dyn Store<Guid, OwnershipVoucher>>,
-    public_key_store: Box<dyn Store<String, PublicKey>>,
+    ownership_voucher_store: Box<dyn Store<fdo_store::WriteOnlyOpen, Guid, OwnershipVoucher>>,
+    public_key_store: Option<Box<dyn Store<fdo_store::ReadOnlyOpen, String, PublicKey>>>,
 
     // Certificates
     manufacturer_cert: X509,
@@ -68,8 +69,27 @@ impl From<KeyTypes> for KeyStorageType {
 #[derive(Debug, Deserialize)]
 struct DiunSettings {
     requires_attestation: bool,
-
     allowed_key_types: Vec<KeyTypes>,
+
+    diun_key_path: String,
+}
+
+impl TryFrom<DiunSettings> for DiunConfiguration {
+    type Error = Error;
+
+    fn try_from(value: DiunSettings) -> Result<DiunConfiguration, Error> {
+        let diun_key = fs::read(value.diun_key_path).context("Error reading DIUN key")?;
+        let diun_key = PKey::private_key_from_der(&diun_key).context("Error parsing DIUN key")?;
+        let diun_key_public = diun_key.public_key().to_der().context("Error building public DIUN key")?;
+
+        Ok(DiunConfiguration {
+            requires_attestation: value.requires_attestation,
+            allowed_key_types: value.allowed_key_types,
+
+            diun_key,
+            diun_key_public,
+        })
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -163,28 +183,114 @@ async fn main() -> Result<()> {
         .ownership_voucher_store_driver
         .initialize(settings.ownership_voucher_store_config)
         .context("Error initializing ownership voucher store")?;
+    let public_key_store = match settings.public_key_store_driver {
+        None => None,
+        Some(driver) => Some(
+            driver
+                .initialize(settings.public_key_store_config)
+                .context("Error initializing public key store")?,
+        ),
+    };
 
     // Read keys and certificates
-    let device_cert_key = PKey::private_key_from_der(&fs::read(settings.manufacturing.device_cert_ca_private_key).context("Error reading device CA private key")?).context("Error parsing device CA private key")?;
-    let device_cert_chain = X509::stack_from_pem(&fs::read(settings.manufacturing.device_cert_ca_chain).context("Error reading device CA chain")?).context("Error parsing device CA chain")?;
-    let manufacturer_cert = X509::from_pem(&fs::read(settings.manufacturing.manufacturer_cert_path).context("Error reading manufacturer certificate")?).context("Error parsing manufacturer certificate")?;
+    let device_cert_key = PKey::private_key_from_der(
+        &fs::read(settings.manufacturing.device_cert_ca_private_key)
+            .context("Error reading device CA private key")?,
+    )
+    .context("Error parsing device CA private key")?;
+    let device_cert_chain = X509::stack_from_pem(
+        &fs::read(settings.manufacturing.device_cert_ca_chain)
+            .context("Error reading device CA chain")?,
+    )
+    .context("Error parsing device CA chain")?;
+    let manufacturer_cert = X509::from_pem(
+        &fs::read(settings.manufacturing.manufacturer_cert_path)
+            .context("Error reading manufacturer certificate")?,
+    )
+    .context("Error parsing manufacturer certificate")?;
+
+    let manufacturer_key = match settings.manufacturing.manufacturer_private_key {
+        None => None,
+        Some(path) => Some(
+            PKey::private_key_from_der(
+                &fs::read(path).context("Error reading manufacturer private key")?,
+            )
+            .context("Error parsing manufacturer private key")?,
+        ),
+    };
+    let owner_cert = match settings.manufacturing.owner_cert_path {
+        None => None,
+        Some(path) => Some(
+            X509::from_pem(&fs::read(path).context("Error reading owner certificate")?)
+                .context("Error parsing owner certificate")?,
+        ),
+    };
+
+    let diun_configuration = match settings.protocols.diun {
+        None => None,
+        Some(v) => Some(v.try_into().context("Error parsing DIUN configuration")?),
+    };
 
     // Initialize user data
     let user_data = Arc::new(ManufacturingServiceUD {
         // Stores
         session_store: session_store.clone(),
         ownership_voucher_store,
+        public_key_store,
 
         device_cert_key,
         device_cert_chain,
         manufacturer_cert,
+        manufacturer_key,
+        owner_cert,
+
+        enable_di: settings.protocols.plain_di.unwrap_or(false),
+        diun_configuration,
     });
 
     // Initialize handlers
     let hello = warp::get().map(|| "Hello from the manufacturing server");
 
+    // DI
+    let handler_di_app_start = fdo_http_wrapper::server::fdo_request_filter(
+        user_data.clone(),
+        session_store.clone(),
+        handlers::di::app_start,
+    );
+    let handler_di_set_hmac = fdo_http_wrapper::server::fdo_request_filter(
+        user_data.clone(),
+        session_store.clone(),
+        handlers::di::set_hmac,
+    );
+
+    // DIUN
+    let handler_diun_connect = fdo_http_wrapper::server::fdo_request_filter(
+        user_data.clone(),
+        session_store.clone(),
+        handlers::diun::connect,
+    );
+    let handler_diun_request_key_parameters = fdo_http_wrapper::server::fdo_request_filter(
+        user_data.clone(),
+        session_store.clone(),
+        handlers::diun::request_key_parameters,
+    );
+    let handler_diun_provide_key = fdo_http_wrapper::server::fdo_request_filter(
+        user_data.clone(),
+        session_store.clone(),
+        handlers::diun::provide_key,
+    );
+
     let routes = warp::post()
-        .and(hello)
+        .and(
+            hello
+                // DI
+                .or(handler_di_app_start)
+                .or(handler_di_set_hmac)
+                // DIUN
+                .or(handler_diun_connect)
+                .or(handler_diun_request_key_parameters)
+                .or(handler_diun_provide_key),
+        )
         .recover(fdo_http_wrapper::server::handle_rejection)
         .with(warp::log("manufacturing-server"));
 

@@ -37,6 +37,14 @@ impl HashType {
             HashType::HmacSha384 => MessageDigest::sha384(),
         }
     }
+
+    pub fn guess_from_length(len: usize) -> Option<Self> {
+        match len {
+            32 => Some(HashType::Sha256),
+            48 => Some(HashType::Sha384),
+            _ => None,
+        }
+    }
 }
 
 impl TryFrom<MessageDigest> for HashType {

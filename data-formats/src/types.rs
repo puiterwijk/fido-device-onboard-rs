@@ -44,6 +44,13 @@ impl Hash {
         Hash { hash_type, value }
     }
 
+    pub fn guess_new_from_data(value: Vec<u8>) -> Option<Self> {
+        match HashType::guess_from_length(value.len()) {
+            Some(hash_type) => Some(Hash { hash_type, value }),
+            None => None,
+        }
+    }
+
     pub fn get_type(&self) -> HashType {
         self.hash_type
     }
@@ -1409,6 +1416,28 @@ impl COSESign {
         )?))
     }
 
+    pub fn new_with_protected<T>(
+        payload: T,
+        protected: COSEHeaderMap,
+        unprotected: Option<COSEHeaderMap>,
+        sign_key: &dyn SigningPrivateKey,
+    ) -> Result<Self, Error>
+    where
+        T: Serialize,
+    {
+        let unprotected = match unprotected {
+            Some(v) => v,
+            None => COSEHeaderMap::new(),
+        };
+        let payload = serde_cbor::to_vec(&payload)?;
+        Ok(COSESign(COSESignInner::new_with_protected(
+            &payload,
+            &protected.into(),
+            &unprotected.into(),
+            sign_key,
+        )?))
+    }
+
     pub fn from_eat<ES>(
         eat: EATokenPayload<ES>,
         unprotected: Option<COSEHeaderMap>,
@@ -1460,6 +1489,37 @@ impl COSESign {
         let claims = COSEHeaderMap(claims);
 
         eat_from_map(claims)
+    }
+
+    pub fn get_protected_value_unverified<T>(
+        &self,
+        header_key: HeaderKeys,
+    ) -> Result<Option<UnverifiedValue<T>>, Error>
+    where
+        T: serde::de::DeserializeOwned,
+    {
+        let (protected, _) = self.0.get_protected_and_payload(None)?;
+        match protected.get(&header_key.cbor_value()) {
+            None => Ok(None),
+            Some(val) => Ok(Some(UnverifiedValue(serde_cbor::value::from_value(
+                val.clone(),
+            )?))),
+        }
+    }
+
+    pub fn get_protected_value<T>(
+        &self,
+        header_key: HeaderKeys,
+        key: &dyn SigningPublicKey,
+    ) -> Result<Option<T>, Error>
+    where
+        T: serde::de::DeserializeOwned,
+    {
+        let (protected, _) = self.0.get_protected_and_payload(Some(key))?;
+        match protected.get(&header_key.cbor_value()) {
+            None => Ok(None),
+            Some(val) => Ok(Some(serde_cbor::value::from_value(val.clone())?)),
+        }
     }
 
     pub fn get_unprotected_value<T>(&self, key: HeaderKeys) -> Result<Option<T>, Error>

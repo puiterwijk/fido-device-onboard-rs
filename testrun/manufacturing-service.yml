@@ -1,0 +1,14 @@
+---
+session_store_driver: InMemory
+ownership_voucher_store_driver: Directory
+ownership_voucher_store_config: ovs/
+bind: 0.0.0.0:8080
+protocols:
+  diun:
+    requires_attestation: false
+    allowed_key_types:
+    - FileSystem
+manufacturing:
+  manufacturer_cert_path: keys/manufacturer_cert.pem
+  device_cert_ca_private_key: keys/device_ca_key.der
+  device_cert_ca_chain: keys/device_ca_cert.pem

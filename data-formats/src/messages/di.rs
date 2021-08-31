@@ -14,7 +14,7 @@ impl AppStart {
         AppStart { mfg_info }
     }
 
-    pub fn get_mfg_info(&self) -> &CborSimpleType {
+    pub fn mfg_info(&self) -> &CborSimpleType {
         &self.mfg_info
     }
 }
@@ -37,7 +37,7 @@ impl SetCredentials {
         SetCredentials { ov_header }
     }
 
-    pub fn get_ov_header(&self) -> &[u8] {
+    pub fn ov_header(&self) -> &[u8] {
         &self.ov_header
     }
 }
@@ -60,7 +60,7 @@ impl SetHMAC {
         SetHMAC { hmac }
     }
 
-    pub fn get_hmac(&self) -> &HMac {
+    pub fn hmac(&self) -> &HMac {
         &self.hmac
     }
 }
