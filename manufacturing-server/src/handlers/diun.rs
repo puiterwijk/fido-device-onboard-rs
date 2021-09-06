@@ -3,7 +3,7 @@ use crate::{ManufacturingServiceUD, ManufacturingServiceUDT};
 use fdo_data_formats::{
     constants::HeaderKeys,
     messages,
-    types::{COSEHeaderMap, COSESign, KeyExchange, Nonce},
+    types::{COSEHeaderMap, COSESign, KeyDeriveSide, KeyExchange, Nonce},
 };
 
 use fdo_http_wrapper::{
@@ -29,13 +29,25 @@ pub(crate) async fn connect(
 
     let b_key_exchange = KeyExchange::new(*msg.kex_suite())
         .map_err(Error::from_error::<messages::diun::Connect, _>)?;
-    let accept_payload =
-        messages::diun::AcceptPayload::new(msg.nonce_diun_1().clone(), b_key_exchange);
+    let accept_payload = messages::diun::AcceptPayload::new(b_key_exchange);
+
+    let new_key = msg.key_exchange().derive_key(
+        KeyDeriveSide::OwnerService,
+        msg.cipher_suite(),
+        msg.key_exchange(),
+    )?;
 
     let mut accept_protected_header = COSEHeaderMap::new();
-    accept_protected_header.insert(HeaderKeys::CUPHNonce, msg.nonce_diun_1()).unwrap();
+    accept_protected_header
+        .insert(HeaderKeys::CUPHNonce, msg.nonce_diun_1())
+        .unwrap();
     let mut accept_unprotected_header = COSEHeaderMap::new();
-    accept_unprotected_header.insert(HeaderKeys::CUPHOwnerPubKey, &user_data.diun_configuration.as_ref().unwrap().public_keys).unwrap();
+    accept_unprotected_header
+        .insert(
+            HeaderKeys::CUPHOwnerPubKey,
+            &user_data.diun_configuration.as_ref().unwrap().public_keys,
+        )
+        .unwrap();
 
     let accept_payload = COSESign::new_with_protected(
         &accept_payload,

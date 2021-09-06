@@ -2,7 +2,7 @@
 session_store_driver: InMemory
 ownership_voucher_store_driver: Directory
 ownership_voucher_store_config: ovs/
-bind: 0.0.0.0:8080
+bind: 0.0.0.0:8081
 protocols:
   diun:
     requires_attestation: false

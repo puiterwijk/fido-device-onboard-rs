@@ -2,7 +2,12 @@ use std::{convert::TryInto, env};
 
 use anyhow::{anyhow, bail, Context, Result};
 
-use fdo_data_formats::{constants::HeaderKeys, messages, publickey::{PublicKey, X5Chain}, types::{CipherSuite, Hash, KexSuite, KeyExchange, Nonce}};
+use fdo_data_formats::{
+    constants::HeaderKeys,
+    messages,
+    publickey::{PublicKey, X5Chain},
+    types::{CipherSuite, Hash, KexSuite, KeyExchange, Nonce},
+};
 use fdo_http_wrapper::client::{RequestResult, ServiceClient};
 
 async fn perform_diun(client: &mut ServiceClient, pub_key_hash: Option<Hash>) -> Result<()> {
@@ -16,23 +21,42 @@ async fn perform_diun(client: &mut ServiceClient, pub_key_hash: Option<Hash>) ->
     // Send: Connect, Receive: Accept
     let accept: RequestResult<messages::diun::Accept> = client
         .send_request(
-            messages::diun::Connect::new(nonce_diun_1, kexsuite, ciphersuite, key_exchange),
+            messages::diun::Connect::new(nonce_diun_1.clone(), kexsuite, ciphersuite, key_exchange),
             None,
         )
         .await;
     let accept = accept.context("Error sending Connect")?.into_token();
     log::trace!("DIUN Accept token: {:?}", accept);
-    let diun_pubkey = X5Chain::from_slice(&accept.get_unprotected_value::<Vec<u8>>(HeaderKeys::CUPHOwnerPubKey).context("Error getting diun_pubkey")?.context("No DIUN public key provided")?).context("Error parsing DIUN public chain")?;
-    log::debug!("DIUN public key: {:?}", diun_pubkey);
+    let diun_pubchain = X5Chain::from_slice(
+        &accept
+            .get_unprotected_value::<Vec<u8>>(HeaderKeys::CUPHOwnerPubKey)
+            .context("Error getting diun_pubkey")?
+            .context("No DIUN public key provided")?,
+    )
+    .context("Error parsing DIUN public chain")?;
+    log::debug!("Validating DIUN public chain: {:?}", diun_pubchain);
 
-    if let Some(pub_key_hash) = pub_key_hash {
-        let first_cert = &diun_pubkey.chain()[0];
-        first_cert.digest(pub_key_hash.get_type().try_into().context("Unsupported algorithm")?).context("Error computing first cert digest")?;
-        if !first_cert_digest.eq(&pub_key_hash) {
-            todo!();
-        }
+    let diun_pubkey = match pub_key_hash {
+        Some(hash) => diun_pubchain.verify_from_digest(&hash),
+        None => unsafe { diun_pubchain.verify_without_root_verification() },
     }
+    .context("Error getting DIUN leaf key")?;
+    log::debug!("DIUN public key: {:?}", diun_pubkey);
+    let diun_pubkey = diun_pubkey
+        .public_key()
+        .context("Error getting DIUN public key")?;
 
+    let nonce_diun_1_from_server: Nonce = accept
+        .get_protected_value(HeaderKeys::CUPHNonce, &diun_pubkey)
+        .context("Error getting nonce from reply")?
+        .context("No nonce provided by server")?;
+    if nonce_diun_1 != nonce_diun_1_from_server {
+        bail!("Nonce from server did not match challenge");
+    }
+    let accept_payload: messages::diun::AcceptPayload = accept
+        .get_payload(&diun_pubkey)
+        .context("Error parsing Accept payload")?;
+    log::trace!("Accept payload: {:?}", accept_payload);
 
     todo!();
 }

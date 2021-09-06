@@ -1,4 +1,5 @@
 use std::convert::TryFrom;
+use std::convert::TryInto;
 use std::fmt;
 use std::fmt::Display;
 
@@ -10,7 +11,12 @@ use openssl::{
 use serde::Deserialize;
 use serde_tuple::Serialize_tuple;
 
-use crate::{constants::{PublicKeyEncoding, PublicKeyType}, errors::{ChainError, Error, Result}};
+use crate::{
+    constants::{PublicKeyEncoding, PublicKeyType},
+    enhanced_types::X5Bag,
+    errors::{ChainError, Error, Result},
+    types::Hash,
+};
 
 #[derive(Debug, Clone, Serialize_tuple, Deserialize)]
 pub struct PublicKey {
@@ -133,8 +139,6 @@ impl PublicKeyBody {
     }
 }
 
-pub fn x5chain_verify_root_from_trusted_certs()
-
 #[derive(Debug)]
 pub struct X5Chain {
     chain: Vec<X509>,
@@ -145,32 +149,58 @@ impl X5Chain {
         X5Chain { chain }
     }
 
-    pub fn verify<F>(&self, is_trusted_root: F) -> Result<&X509>
+    pub fn verify_from_x5bag(&self, bag: &X5Bag) -> Result<&X509> {
+        self.verify(|bag, cert| bag.contains(cert), bag)
+    }
+
+    pub fn verify_from_digest(&self, digest: &Hash) -> Result<&X509> {
+        let correct_type = digest.get_type().try_into()?;
+        self.verify(
+            |correct_digest, cert| {
+                let cert_digest = cert.digest(correct_type).unwrap();
+                log::trace!("Checking digest: {}", hex::encode(cert_digest));
+                correct_digest.eq(&cert_digest)
+            },
+            digest,
+        )
+    }
+
+    pub unsafe fn verify_without_root_verification(&self) -> Result<&X509> {
+        self.verify(|_, _| true, &true)
+    }
+
+    pub fn verify<UD, F>(&self, is_trusted_root: F, user_data: &UD) -> Result<&X509>
     where
-        F: Fn(&X509) -> bool,
+        F: Fn(&UD, &X509) -> bool,
     {
-        if self.chain.is_empty() {
-            return Err(Error::InvalidChain(ChainError::Empty));
-        }
-
-        let mut has_trusted_root = false;
-        for certpos in 0..self.chain.len()-1 {
-            let cert = &self.chain[certpos];
-            let issuer = &self.chain[certpos + 1];
-
-            if !cert.verify(&issuer.public_key().unwrap())? {
-                return Err(Error::InvalidChain(ChainError::InvalidSignedCert(certpos)));
+        match self.chain.len() {
+            0 => Err(Error::InvalidChain(ChainError::Empty)),
+            1 => {
+                if is_trusted_root(&user_data, &self.chain[0]) {
+                    Ok(&self.chain[0])
+                } else {
+                    Err(Error::InvalidChain(ChainError::NoTrustedRoot))
+                }
             }
+            _ => {
+                let mut has_trusted_root = false;
+                for certpos in 0..self.chain.len() - 1 {
+                    let cert = &self.chain[certpos];
+                    let issuer = &self.chain[certpos + 1];
+                    if !cert.verify(&issuer.public_key().unwrap())? {
+                        return Err(Error::InvalidChain(ChainError::InvalidSignedCert(certpos)));
+                    }
+                    if !has_trusted_root && is_trusted_root(&user_data, issuer) {
+                        has_trusted_root = true;
+                    }
+                }
+                if !has_trusted_root {
+                    return Err(Error::InvalidChain(ChainError::NoTrustedRoot));
+                }
 
-            if !has_trusted_root && is_trusted_root(issuer) {
-                has_trusted_root = true;
+                Ok(&self.chain[self.chain.len() - 1])
             }
         }
-        if !has_trusted_root {
-            return Err(Error::InvalidChain(ChainError::NoTrustedRoot));
-        }
-
-        Ok(&self.chain[self.chain.len()-1])
     }
 
     pub fn to_vec(&self) -> Result<Vec<u8>> {

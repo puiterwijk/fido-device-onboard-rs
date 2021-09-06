@@ -13,7 +13,7 @@ pub struct Connect {
     nonce_diun_1: Nonce,
     kex_suite: KexSuite,
     cipher_suite: CipherSuite,
-    key_exchange: KeyExchange,
+    key_exchange: Vec<u8>,
 }
 
 impl Connect {
@@ -21,7 +21,7 @@ impl Connect {
         nonce_diun_1: Nonce,
         kex_suite: KexSuite,
         cipher_suite: CipherSuite,
-        key_exchange: KeyExchange,
+        key_exchange: Vec<u8>,
     ) -> Self {
         Connect {
             nonce_diun_1,
@@ -43,7 +43,7 @@ impl Connect {
         &self.cipher_suite
     }
 
-    pub fn key_exchange(&self) -> &KeyExchange {
+    pub fn key_exchange(&self) -> &[u8] {
         &self.key_exchange
     }
 }
@@ -79,16 +79,12 @@ impl ServerMessage for Accept {}
 
 #[derive(Debug, Serialize_tuple, Deserialize)]
 pub struct AcceptPayload {
-    nonce_diun_1: Nonce,
     key_exchange: KeyExchange,
 }
 
 impl AcceptPayload {
-    pub fn new(nonce_diun_1: Nonce, key_exchange: KeyExchange) -> Self {
-        AcceptPayload {
-            nonce_diun_1,
-            key_exchange,
-        }
+    pub fn new(key_exchange: KeyExchange) -> Self {
+        AcceptPayload { key_exchange }
     }
 
     pub fn key_exchange(&self) -> &KeyExchange {

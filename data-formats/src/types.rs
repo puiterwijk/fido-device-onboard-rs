@@ -77,6 +77,12 @@ impl PartialEq for Hash {
     }
 }
 
+impl PartialEq<openssl::hash::DigestBytes> for Hash {
+    fn eq(&self, other: &openssl::hash::DigestBytes) -> bool {
+        openssl::memcmp::eq(&self.value, &other.as_ref())
+    }
+}
+
 impl std::fmt::Display for Hash {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{} ({:?})", hex::encode(&self.value), self.hash_type)

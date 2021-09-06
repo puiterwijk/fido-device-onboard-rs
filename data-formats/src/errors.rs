@@ -39,6 +39,6 @@ pub enum Error {
     InvalidEntryNum,
     #[error("Error in key exchange: {0}")]
     KeyExchangeError(&'static str),
-    #[error("Invalid certificate chain encountered")]
+    #[error("Invalid certificate chain encountered: {0}")]
     InvalidChain(ChainError),
 }

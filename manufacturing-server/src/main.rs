@@ -12,7 +12,12 @@ use openssl::{
 use serde::Deserialize;
 use warp::Filter;
 
-use fdo_data_formats::{constants::{KeyStorageType, MfgStringType}, ownershipvoucher::OwnershipVoucher, publickey::{PublicKey, PublicKeyBody, X5Chain}, types::Guid};
+use fdo_data_formats::{
+    constants::{KeyStorageType, MfgStringType},
+    ownershipvoucher::OwnershipVoucher,
+    publickey::{PublicKey, PublicKeyBody, X5Chain},
+    types::Guid,
+};
 use fdo_store::{Store, StoreDriver};
 
 mod handlers;
@@ -75,8 +80,14 @@ impl TryFrom<DiunSettings> for DiunConfiguration {
     fn try_from(value: DiunSettings) -> Result<DiunConfiguration, Error> {
         let key = fs::read(value.key_path).context("Error reading DIUN key")?;
         let key = PKey::private_key_from_der(&key).context("Error parsing DIUN key")?;
-        let public_keys  = X5Chain::new(X509::stack_from_pem(&fs::read(value.cert_path).context("Error reading DIUN certificate")?).context("Error parsing DIUN certificate")?)
-        .to_vec().context("Error serializing DIUN keys")?;
+        let public_keys = X5Chain::new(
+            X509::stack_from_pem(
+                &fs::read(value.cert_path).context("Error reading DIUN certificate")?,
+            )
+            .context("Error parsing DIUN certificate")?,
+        )
+        .to_vec()
+        .context("Error serializing DIUN keys")?;
 
         Ok(DiunConfiguration {
             requires_attestation: value.requires_attestation,
