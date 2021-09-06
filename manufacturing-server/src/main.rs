@@ -12,13 +12,7 @@ use openssl::{
 use serde::Deserialize;
 use warp::Filter;
 
-use fdo_data_formats::{
-    constants::{KeyStorageType, MfgStringType},
-    enhanced_types::X5Bag,
-    ownershipvoucher::OwnershipVoucher,
-    publickey::{PublicKey, PublicKeyBody},
-    types::Guid,
-};
+use fdo_data_formats::{constants::{KeyStorageType, MfgStringType}, ownershipvoucher::OwnershipVoucher, publickey::{PublicKey, PublicKeyBody, X5Chain}, types::Guid};
 use fdo_store::{Store, StoreDriver};
 
 mod handlers;
@@ -27,8 +21,8 @@ struct DiunConfiguration {
     requires_attestation: bool,
     allowed_key_types: Vec<KeyTypes>,
 
-    diun_key: PKey<Private>,
-    diun_key_public: Vec<u8>,
+    key: PKey<Private>,
+    public_keys: Vec<u8>,
 }
 
 struct ManufacturingServiceUD {
@@ -71,23 +65,25 @@ struct DiunSettings {
     requires_attestation: bool,
     allowed_key_types: Vec<KeyTypes>,
 
-    diun_key_path: String,
+    key_path: String,
+    cert_path: String,
 }
 
 impl TryFrom<DiunSettings> for DiunConfiguration {
     type Error = Error;
 
     fn try_from(value: DiunSettings) -> Result<DiunConfiguration, Error> {
-        let diun_key = fs::read(value.diun_key_path).context("Error reading DIUN key")?;
-        let diun_key = PKey::private_key_from_der(&diun_key).context("Error parsing DIUN key")?;
-        let diun_key_public = diun_key.public_key().to_der().context("Error building public DIUN key")?;
+        let key = fs::read(value.key_path).context("Error reading DIUN key")?;
+        let key = PKey::private_key_from_der(&key).context("Error parsing DIUN key")?;
+        let public_keys  = X5Chain::new(X509::stack_from_pem(&fs::read(value.cert_path).context("Error reading DIUN certificate")?).context("Error parsing DIUN certificate")?)
+        .to_vec().context("Error serializing DIUN keys")?;
 
         Ok(DiunConfiguration {
             requires_attestation: value.requires_attestation,
             allowed_key_types: value.allowed_key_types,
 
-            diun_key,
-            diun_key_public,
+            key,
+            public_keys,
         })
     }
 }

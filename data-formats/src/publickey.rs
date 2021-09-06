@@ -10,10 +10,7 @@ use openssl::{
 use serde::Deserialize;
 use serde_tuple::Serialize_tuple;
 
-use crate::{
-    constants::{PublicKeyEncoding, PublicKeyType},
-    errors::{Error, Result},
-};
+use crate::{constants::{PublicKeyEncoding, PublicKeyType}, errors::{ChainError, Error, Result}};
 
 #[derive(Debug, Clone, Serialize_tuple, Deserialize)]
 pub struct PublicKey {
@@ -78,6 +75,7 @@ impl Display for PublicKey {
 }
 
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub enum PublicKeyBody {
     Crypto(Vec<u8>),
     X509(X509),
@@ -135,6 +133,8 @@ impl PublicKeyBody {
     }
 }
 
+pub fn x5chain_verify_root_from_trusted_certs()
+
 #[derive(Debug)]
 pub struct X5Chain {
     chain: Vec<X509>,
@@ -143,6 +143,34 @@ pub struct X5Chain {
 impl X5Chain {
     pub fn new(chain: Vec<X509>) -> Self {
         X5Chain { chain }
+    }
+
+    pub fn verify<F>(&self, is_trusted_root: F) -> Result<&X509>
+    where
+        F: Fn(&X509) -> bool,
+    {
+        if self.chain.is_empty() {
+            return Err(Error::InvalidChain(ChainError::Empty));
+        }
+
+        let mut has_trusted_root = false;
+        for certpos in 0..self.chain.len()-1 {
+            let cert = &self.chain[certpos];
+            let issuer = &self.chain[certpos + 1];
+
+            if !cert.verify(&issuer.public_key().unwrap())? {
+                return Err(Error::InvalidChain(ChainError::InvalidSignedCert(certpos)));
+            }
+
+            if !has_trusted_root && is_trusted_root(issuer) {
+                has_trusted_root = true;
+            }
+        }
+        if !has_trusted_root {
+            return Err(Error::InvalidChain(ChainError::NoTrustedRoot));
+        }
+
+        Ok(&self.chain[self.chain.len()-1])
     }
 
     pub fn to_vec(&self) -> Result<Vec<u8>> {

@@ -6,6 +6,8 @@ bind: 0.0.0.0:8080
 protocols:
   diun:
     requires_attestation: false
+    key_path: keys/diun_key.der
+    cert_path: keys/diun_cert.pem
     allowed_key_types:
     - FileSystem
 manufacturing:

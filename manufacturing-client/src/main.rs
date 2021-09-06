@@ -1,14 +1,13 @@
-use std::env;
+use std::{convert::TryInto, env};
 
 use anyhow::{anyhow, bail, Context, Result};
 
-use fdo_data_formats::{
-    messages,
-    types::{CipherSuite, Hash, KexSuite, KeyExchange, Nonce},
-};
+use fdo_data_formats::{constants::HeaderKeys, messages, publickey::{PublicKey, X5Chain}, types::{CipherSuite, Hash, KexSuite, KeyExchange, Nonce}};
 use fdo_http_wrapper::client::{RequestResult, ServiceClient};
 
 async fn perform_diun(client: &mut ServiceClient, pub_key_hash: Option<Hash>) -> Result<()> {
+    log::info!("Performing DIUN");
+
     let nonce_diun_1 = Nonce::new().context("Error generating diun_nonce_1")?;
     let kexsuite = KexSuite::Ecdh384;
     let ciphersuite = CipherSuite::A256Gcm;
@@ -21,7 +20,19 @@ async fn perform_diun(client: &mut ServiceClient, pub_key_hash: Option<Hash>) ->
             None,
         )
         .await;
-    let accept = accept.context("Error sending Connect")?;
+    let accept = accept.context("Error sending Connect")?.into_token();
+    log::trace!("DIUN Accept token: {:?}", accept);
+    let diun_pubkey = X5Chain::from_slice(&accept.get_unprotected_value::<Vec<u8>>(HeaderKeys::CUPHOwnerPubKey).context("Error getting diun_pubkey")?.context("No DIUN public key provided")?).context("Error parsing DIUN public chain")?;
+    log::debug!("DIUN public key: {:?}", diun_pubkey);
+
+    if let Some(pub_key_hash) = pub_key_hash {
+        let first_cert = &diun_pubkey.chain()[0];
+        first_cert.digest(pub_key_hash.get_type().try_into().context("Unsupported algorithm")?).context("Error computing first cert digest")?;
+        if !first_cert_digest.eq(&pub_key_hash) {
+            todo!();
+        }
+    }
+
 
     todo!();
 }
