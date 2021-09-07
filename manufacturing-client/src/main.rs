@@ -6,7 +6,7 @@ use fdo_data_formats::{
     constants::HeaderKeys,
     messages,
     publickey::{PublicKey, X5Chain},
-    types::{CipherSuite, Hash, KexSuite, KeyExchange, Nonce},
+    types::{CipherSuite, Hash, KexSuite, KeyDeriveSide, KeyExchange, Nonce},
 };
 use fdo_http_wrapper::client::{RequestResult, ServiceClient};
 
@@ -21,7 +21,14 @@ async fn perform_diun(client: &mut ServiceClient, pub_key_hash: Option<Hash>) ->
     // Send: Connect, Receive: Accept
     let accept: RequestResult<messages::diun::Accept> = client
         .send_request(
-            messages::diun::Connect::new(nonce_diun_1.clone(), kexsuite, ciphersuite, key_exchange),
+            messages::diun::Connect::new(
+                nonce_diun_1.clone(),
+                kexsuite,
+                ciphersuite,
+                key_exchange
+                    .get_public()
+                    .context("Error serializing public key exchange bit")?,
+            ),
             None,
         )
         .await;
@@ -57,6 +64,14 @@ async fn perform_diun(client: &mut ServiceClient, pub_key_hash: Option<Hash>) ->
         .get_payload(&diun_pubkey)
         .context("Error parsing Accept payload")?;
     log::trace!("Accept payload: {:?}", accept_payload);
+    let new_keys = key_exchange
+        .derive_key(
+            KeyDeriveSide::Device,
+            ciphersuite,
+            accept_payload.key_exchange(),
+        )
+        .context("Error performing key derivation")?;
+    log::trace!("Derived new keys: {:?}", new_keys);
 
     todo!();
 }

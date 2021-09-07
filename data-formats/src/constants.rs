@@ -3,6 +3,8 @@ use std::str::FromStr;
 
 use crate::{errors::Result, Error};
 
+use num_derive::FromPrimitive;
+use num_traits::FromPrimitive;
 use openssl::hash::MessageDigest;
 use serde_repr::{Deserialize_repr, Serialize_repr};
 
@@ -284,10 +286,12 @@ impl RendezvousProtocolValue {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize_repr, Deserialize_repr)]
+#[derive(Debug, Clone, Copy, Serialize_repr, Deserialize_repr, FromPrimitive, PartialEq)]
 #[repr(u8)]
 #[non_exhaustive]
 pub enum MessageType {
+    Invalid = 0,
+
     // Device Initialization
     DIAppStart = 10,
     DISetCredentials = 11,
@@ -316,8 +320,28 @@ pub enum MessageType {
     TO2OwnerServiceInfo = 69,
     TO2Done = 70,
     TO2Done2 = 71,
+
+    // Custom: DIUN
+    DIUNConnect = 210,
+    DIUNAccept = 211,
+    DIUNRequestKeyParameters = 212,
+    DIUNProvideKeyParameters = 213,
+    DIUNProvideKey = 214,
+    DIUNDone = 215,
+
     // Error
     Error = 255,
+}
+
+impl TryFrom<u8> for MessageType {
+    type Error = ();
+
+    fn try_from(value: u8) -> std::result::Result<Self, ()> {
+        match MessageType::from_u8(value) {
+            Some(v) => Ok(v),
+            None => Err(()),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Serialize_repr, Deserialize_repr)]

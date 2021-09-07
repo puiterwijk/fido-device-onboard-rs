@@ -3,7 +3,7 @@ use serde_tuple::Serialize_tuple;
 
 use super::{ClientMessage, Message, ServerMessage};
 use crate::{
-    constants::{KeyStorageType, MfgStringType, PublicKeyType},
+    constants::{KeyStorageType, MessageType, MfgStringType, PublicKeyType},
     publickey::PublicKey,
     types::{COSESign, CipherSuite, KexSuite, KeyExchange, Nonce},
 };
@@ -49,8 +49,19 @@ impl Connect {
 }
 
 impl Message for Connect {
-    fn message_type() -> u8 {
-        210
+    fn message_type() -> MessageType {
+        MessageType::DIUNConnect
+    }
+
+    fn encryption_requirement() -> Option<super::EncryptionRequirement> {
+        Some(super::EncryptionRequirement::MustNotBeEncrypted)
+    }
+
+    fn is_valid_previous_message(message_type: Option<MessageType>) -> bool {
+        match message_type {
+            None => true,
+            _ => false,
+        }
     }
 }
 
@@ -70,8 +81,19 @@ impl Accept {
 }
 
 impl Message for Accept {
-    fn message_type() -> u8 {
-        211
+    fn message_type() -> MessageType {
+        MessageType::DIUNAccept
+    }
+
+    fn encryption_requirement() -> Option<super::EncryptionRequirement> {
+        Some(super::EncryptionRequirement::MustNotBeEncrypted)
+    }
+
+    fn is_valid_previous_message(message_type: Option<MessageType>) -> bool {
+        match message_type {
+            Some(MessageType::DIUNConnect) => true,
+            _ => false,
+        }
     }
 }
 
@@ -79,15 +101,15 @@ impl ServerMessage for Accept {}
 
 #[derive(Debug, Serialize_tuple, Deserialize)]
 pub struct AcceptPayload {
-    key_exchange: KeyExchange,
+    key_exchange: Vec<u8>,
 }
 
 impl AcceptPayload {
-    pub fn new(key_exchange: KeyExchange) -> Self {
+    pub fn new(key_exchange: Vec<u8>) -> Self {
         AcceptPayload { key_exchange }
     }
 
-    pub fn key_exchange(&self) -> &KeyExchange {
+    pub fn key_exchange(&self) -> &[u8] {
         &self.key_exchange
     }
 }
@@ -104,8 +126,19 @@ impl RequestKeyParameters {
 }
 
 impl Message for RequestKeyParameters {
-    fn message_type() -> u8 {
-        212
+    fn message_type() -> MessageType {
+        MessageType::DIUNRequestKeyParameters
+    }
+
+    fn encryption_requirement() -> Option<super::EncryptionRequirement> {
+        Some(super::EncryptionRequirement::MustNotBeEncrypted)
+    }
+
+    fn is_valid_previous_message(message_type: Option<MessageType>) -> bool {
+        match message_type {
+            Some(MessageType::DIUNAccept) => true,
+            _ => false,
+        }
     }
 }
 
@@ -145,8 +178,15 @@ impl ProvideKeyParameters {
 }
 
 impl Message for ProvideKeyParameters {
-    fn message_type() -> u8 {
-        213
+    fn message_type() -> MessageType {
+        MessageType::DIUNProvideKeyParameters
+    }
+
+    fn is_valid_previous_message(message_type: Option<MessageType>) -> bool {
+        match message_type {
+            Some(MessageType::DIUNRequestKeyParameters) => true,
+            _ => false,
+        }
     }
 }
 
@@ -187,8 +227,15 @@ impl ProvideKey {
 }
 
 impl Message for ProvideKey {
-    fn message_type() -> u8 {
-        214
+    fn message_type() -> MessageType {
+        MessageType::DIUNProvideKey
+    }
+
+    fn is_valid_previous_message(message_type: Option<MessageType>) -> bool {
+        match message_type {
+            Some(MessageType::DIUNProvideKeyParameters) => true,
+            _ => false,
+        }
     }
 }
 
@@ -210,8 +257,15 @@ impl Done {
 }
 
 impl Message for Done {
-    fn message_type() -> u8 {
-        215
+    fn message_type() -> MessageType {
+        MessageType::DIUNDone
+    }
+
+    fn is_valid_previous_message(message_type: Option<MessageType>) -> bool {
+        match message_type {
+            Some(MessageType::DIUNProvideKey) => true,
+            _ => false,
+        }
     }
 }
 

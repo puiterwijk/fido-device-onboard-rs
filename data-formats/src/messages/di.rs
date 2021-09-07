@@ -2,7 +2,10 @@ use serde::{Deserialize, Serialize, Serializer};
 use serde_tuple::Serialize_tuple;
 
 use super::{ClientMessage, Message, ServerMessage};
-use crate::types::{CborSimpleType, HMac};
+use crate::{
+    constants::MessageType,
+    types::{CborSimpleType, HMac},
+};
 
 #[derive(Debug, Serialize_tuple, Deserialize)]
 pub struct AppStart {
@@ -20,8 +23,16 @@ impl AppStart {
 }
 
 impl Message for AppStart {
-    fn message_type() -> u8 {
-        10
+    fn message_type() -> MessageType {
+        MessageType::DIAppStart
+    }
+
+    fn is_valid_previous_message(message_type: Option<crate::constants::MessageType>) -> bool {
+        match message_type {
+            None => true,
+            Some(MessageType::DIUNDone) => true,
+            _ => false,
+        }
     }
 }
 
@@ -43,8 +54,15 @@ impl SetCredentials {
 }
 
 impl Message for SetCredentials {
-    fn message_type() -> u8 {
-        11
+    fn message_type() -> MessageType {
+        MessageType::DISetCredentials
+    }
+
+    fn is_valid_previous_message(message_type: Option<crate::constants::MessageType>) -> bool {
+        match message_type {
+            Some(MessageType::DIAppStart) => true,
+            _ => false,
+        }
     }
 }
 
@@ -66,8 +84,15 @@ impl SetHMAC {
 }
 
 impl Message for SetHMAC {
-    fn message_type() -> u8 {
-        12
+    fn message_type() -> MessageType {
+        MessageType::DISetHMAC
+    }
+
+    fn is_valid_previous_message(message_type: Option<crate::constants::MessageType>) -> bool {
+        match message_type {
+            Some(MessageType::DISetCredentials) => true,
+            _ => false,
+        }
     }
 }
 
@@ -83,8 +108,15 @@ impl Done {
 }
 
 impl Message for Done {
-    fn message_type() -> u8 {
-        13
+    fn message_type() -> MessageType {
+        MessageType::DIDone
+    }
+
+    fn is_valid_previous_message(message_type: Option<crate::constants::MessageType>) -> bool {
+        match message_type {
+            Some(MessageType::DISetHMAC) => true,
+            _ => false,
+        }
     }
 }
 

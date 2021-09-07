@@ -1436,9 +1436,14 @@ impl COSESign {
             None => COSEHeaderMap::new(),
         };
         let payload = serde_cbor::to_vec(&payload)?;
+
+        let (sig_alg, _) = sign_key.get_parameters()?;
+        let mut protected: aws_nitro_enclaves_cose::header_map::HeaderMap = protected.into();
+        protected.insert(1.into(), (sig_alg as i8).into());
+
         Ok(COSESign(COSESignInner::new_with_protected(
             &payload,
-            &protected.into(),
+            &protected,
             &unprotected.into(),
             sign_key,
         )?))

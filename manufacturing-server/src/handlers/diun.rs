@@ -29,13 +29,27 @@ pub(crate) async fn connect(
 
     let b_key_exchange = KeyExchange::new(*msg.kex_suite())
         .map_err(Error::from_error::<messages::diun::Connect, _>)?;
-    let accept_payload = messages::diun::AcceptPayload::new(b_key_exchange);
 
-    let new_key = msg.key_exchange().derive_key(
-        KeyDeriveSide::OwnerService,
-        msg.cipher_suite(),
-        msg.key_exchange(),
-    )?;
+    let new_keys = b_key_exchange
+        .derive_key(
+            KeyDeriveSide::OwnerService,
+            *msg.cipher_suite(),
+            msg.key_exchange(),
+        )
+        .map_err(Error::from_error::<messages::diun::Connect, _>)?;
+    let new_keys = EncryptionKeys::from_derived(*msg.cipher_suite(), new_keys);
+    log::trace!("Got new keys, setting {:?}", new_keys);
+    // Note to self: set the keys after getting RequestKeyParameters - we encrypt as of the next reply
+    /*fdo_http_wrapper::server::set_encryption_keys::<messages::diun::Connect>(
+        &mut session,
+        new_keys,
+    )?;*/
+
+    let accept_payload = messages::diun::AcceptPayload::new(
+        b_key_exchange
+            .get_public()
+            .map_err(Error::from_error::<messages::diun::Connect, _>)?,
+    );
 
     let mut accept_protected_header = COSEHeaderMap::new();
     accept_protected_header
