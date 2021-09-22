@@ -1,12 +1,6 @@
 #![allow(dead_code)]
 
-use std::{
-    env,
-    fs::{create_dir, File},
-    io::{BufRead, BufReader},
-    path::{Path, PathBuf},
-    process::{Child, Command},
-};
+use std::{env, fs::{create_dir, File}, io::{BufRead, BufReader}, path::{Path, PathBuf}, process::{Child, Command, ExitStatus, Output, Stdio}};
 
 use anyhow::{bail, Context as _, Result};
 use openssl::{
@@ -61,12 +55,24 @@ impl Binary {
 
     fn config_file_name(&self) -> Option<&str> {
         match self {
-            Binary::ClientLinuxapp => None,
-            Binary::ManufacturingClient => None,
             Binary::ManufacturingServer => Some("manufacturing-service.yml"),
             Binary::OwnerOnboardingServer => Some("owner-onboarding-service.yml"),
-            Binary::OwnerTool => None,
             Binary::RendezvousServer => Some("rendezvous-service.yml"),
+            _ => None,
+        }
+    }
+
+    fn is_server(&self) -> bool {
+        matches!(
+            self,
+            Binary::OwnerOnboardingServer | Binary::ManufacturingServer | Binary::RendezvousServer
+        )
+    }
+
+    fn url_environment_variable(&self) -> Option<&str> {
+        match self {
+            Binary::ManufacturingClient => Some("MANUFACTURING_SERVICE_URL"),
+            _ => None,
         }
     }
 }
@@ -78,42 +84,54 @@ impl std::fmt::Display for Binary {
 }
 
 #[derive(Debug)]
-struct TestServerNumberGenerator(u16);
+struct TestBinaryNumberGenerator(u16);
 
-impl TestServerNumberGenerator {
+impl TestBinaryNumberGenerator {
     fn new() -> Self {
         Self(0)
     }
 
-    fn next(&mut self, binary: Binary) -> TestServerNumber {
+    fn next(&mut self, binary: Binary) -> TestBinaryNumber {
         self.0 += 1;
-        TestServerNumber::new(binary, self.0)
+        TestBinaryNumber::new(binary, self.0)
     }
 }
 
-#[derive(Debug)]
-struct TestServerNumber {
+#[derive(Debug, Clone)]
+pub struct TestBinaryNumber {
     binary: Binary,
     number: u16,
     name: String,
 }
 
-impl TestServerNumber {
+impl TestBinaryNumber {
     fn new(binary: Binary, number: u16) -> Self {
         let name = format!("{}-{}", binary, number);
-        TestServerNumber {
+        TestBinaryNumber {
             binary,
             number,
             name,
         }
     }
 
-    fn server_name(&self) -> &str {
+    fn name(&self) -> &str {
         &self.name
     }
 
-    fn server_port(&self) -> u16 {
-        8080 + self.number
+    fn server_port(&self) -> Option<u16> {
+        if self.binary.is_server() {
+            Some(8080 + self.number)
+        } else {
+            None
+        }
+    }
+
+    fn server_url(&self) -> Option<String> {
+        if self.binary.is_server() {
+            Some(format!("http://localhost:{}", self.server_port().unwrap()))
+        } else {
+            None
+        }
     }
 }
 
@@ -141,7 +159,9 @@ pub struct TestContext {
     target_directory: PathBuf,
 
     test_servers: Vec<TestServer>,
-    test_server_number_generator: TestServerNumberGenerator,
+    test_servers_ready: bool,
+
+    test_binary_number_generator: TestBinaryNumberGenerator,
 
     // This is here just to make sure the destructor is called.
     // This is also at the end, to make sure that everything else gets to use
@@ -172,7 +192,8 @@ impl TestContext {
             testpath,
             target_directory,
             test_servers: Vec::new(),
-            test_server_number_generator: TestServerNumberGenerator::new(),
+            test_servers_ready: true,
+            test_binary_number_generator: TestBinaryNumberGenerator::new(),
         };
 
         new_context.create_keys().context("Error creating keys")?;
@@ -276,14 +297,16 @@ impl TestContext {
         binary: Binary,
         config_configurator: F1,
         cmd_configurator: F2,
-    ) -> Result<()>
+    ) -> Result<TestBinaryNumber>
     where
         F1: FnOnce(&mut TestServerConfigurator) -> Result<()>,
         F2: FnOnce(&mut Command) -> Result<()>,
     {
-        let test_server_number = self.test_server_number_generator.next(binary);
+        self.test_servers_ready = false;
 
-        let server_path = self.testpath.join(test_server_number.server_name());
+        let test_server_number = self.test_binary_number_generator.next(binary);
+
+        let server_path = self.testpath.join(test_server_number.name());
         create_dir(&server_path).context("Error creating directory")?;
 
         // Create the config file
@@ -310,7 +333,7 @@ impl TestContext {
 
         L.l(format!(
             "Spawning server {}, path: {:?}, server_path: {:?}, command: {:?}",
-            test_server_number.server_name(),
+            test_server_number.name(),
             cmd_path,
             server_path,
             cmd
@@ -320,12 +343,12 @@ impl TestContext {
             .spawn()
             .with_context(|| format!("Error spawning test server for {:?}", binary))?;
 
-        let test_server = TestServer::new(server_path, test_server_number, child)
+        let test_server = TestServer::new(server_path, test_server_number.clone(), child)
             .with_context(|| format!("Error creating test server for {:?}", binary))?;
 
         self.test_servers.push(test_server);
 
-        Ok(())
+        Ok(test_server_number)
     }
 
     pub async fn wait_until_servers_ready(&mut self) -> Result<()> {
@@ -333,11 +356,75 @@ impl TestContext {
             test_server.wait_until_ready().await.with_context(|| {
                 format!(
                     "Error waiting for server {} to start",
-                    test_server.server_number.server_name()
+                    test_server.server_number.name()
                 )
             })?;
         }
+        self.test_servers_ready = true;
         Ok(())
+    }
+
+    fn check_test_servers_ready(&self) -> Result<()> {
+        if self.test_servers_ready {
+            Ok(())
+        } else {
+            bail!("Test servers are not yet ready");
+        }
+    }
+
+    pub fn run_client<F>(
+        &mut self,
+        binary: Binary,
+        server: Option<&TestBinaryNumber>,
+        configurator: F,
+    ) -> Result<TestClientResult>
+    where
+        F: FnOnce(&mut Command) -> Result<()>,
+    {
+        self.check_test_servers_ready()?;
+
+        let client_number = self.test_binary_number_generator.next(binary);
+        let client_path = self.testpath.join(client_number.name());
+
+        create_dir(&client_path).context("Error creating directory")?;
+
+        let cmd_path = self.target_directory.join(binary.target_name());
+        let mut cmd = Command::new(&cmd_path);
+
+        L.l(format!(
+            "Running client {}, path: {:?}, client_path: {:?}, command: {:?}",
+            client_number.name(),
+            cmd_path,
+            client_path,
+            cmd
+        ));
+
+        // Do initial configuration: everything can be overridden by the configurator
+        cmd.current_dir(&client_path).env("LOG_LEVEL", "trace");
+
+        if let Some(server) = server {
+            if let Some(url_variable) = binary.url_environment_variable() {
+                if let Some(server_url) = server.server_url() {
+                    L.l(format!(
+                        "Setting client env var {} to server url {}",
+                        url_variable, server_url
+                    ));
+                    cmd.env(url_variable, server_url);
+                } else {
+                    bail!("Server URL not found for {}", server.name());
+                }
+            } else {
+                bail!("Requested to pass along server URL, but no clue what that is");
+            }
+        }
+
+        // Call Command configurator
+        configurator(&mut cmd).context("Error configuring client command")?;
+
+        let output = cmd.output().context("Error running client")?;
+        let result = TestClientResult::new(client_number, client_path, output);
+
+        Ok(result)
     }
 }
 
@@ -348,11 +435,118 @@ impl Drop for TestContext {
 }
 
 #[derive(Debug)]
+pub struct TestClientResult {
+    client_number: TestBinaryNumber,
+    client_path: PathBuf,
+    status: ExitStatus,
+    stdout: Vec<String>,
+    stderr: Vec<String>,
+}
+
+impl TestClientResult {
+    fn new(client_number: TestBinaryNumber, client_path: PathBuf, output: Output) -> Self {
+        L.l(format!(
+            "Client {} succeeded: {}",
+            client_number.name(),
+            output.status.success()
+        ));
+
+        let status = output.status;
+        let stdout: Vec<String> = String::from_utf8_lossy(&output.stdout).split('\n').map(String::from).collect();
+        let stderr: Vec<String> = String::from_utf8_lossy(&output.stderr).split('\n').map(String::from).collect();
+
+        L.l(format!("Stdout for client {}:", client_number.name()));
+        L.l("=========================================");
+        for line in &stdout {
+            L.l(line);
+        }
+        L.l("=========================================");
+        L.l(format!("Stderr for client {}:", client_number.name()));
+        L.l("=========================================");
+        for line in &stderr {
+            L.l(line);
+        }
+        L.l("=========================================");
+        L.l("");
+
+        TestClientResult {
+            client_number,
+            client_path,
+            status,
+            stdout,
+            stderr,
+        }
+    }
+
+    pub fn expect_success(&self) -> Result<()> {
+        if self.status.success() {
+            Ok(())
+        } else {
+            bail!("Client {} failed", self.client_number.name());
+        }
+    }
+
+    pub fn expect_failure(&self) -> Result<()> {
+        if self.status.success() {
+            bail!(
+                "Client {} succeeded unexpectedly",
+                self.client_number.name()
+            );
+        } else {
+            Ok(())
+        }
+    }
+
+    pub fn client_path(&self) -> &Path {
+        &self.client_path
+    }
+
+    fn expect_line(&self, output: &[String], line: &str) -> Result<()> {
+        for outputline in output {
+            if outputline.contains(line) {
+                L.l("Line found");
+                return Ok(());
+            }
+        }
+        L.l("Line not found");
+        bail!("Expected line {} not found in output", line);
+    }
+
+    fn expect_not_line(&self, output: &[String], line: &str) -> Result<()> {
+        if self.expect_line(output, line).is_ok() {
+            bail!("Expected line {} found in output", line);
+        } else {
+            Ok(())
+        }
+    }
+
+    pub fn expect_stderr_line(&self, line: &str) -> Result<()> {
+        L.l(format!("Checking for line {} in {} stderr to occur", line, self.client_number.name()));
+        self.expect_line(&self.stderr, line)
+    }
+
+    pub fn expect_not_stderr_line(&self, line: &str) -> Result<()> {
+        L.l(format!("Checking for line {} in {} stderr to NOT occur", line, self.client_number.name()));
+        self.expect_not_line(&self.stderr, line)
+    }
+
+    pub fn expect_stdout_line(&self, line: &str) -> Result<()> {
+        L.l(format!("Checking for line {} in {} stdout to occur", line, self.client_number.name()));
+        self.expect_line(&self.stdout, line)
+    }
+
+    pub fn expect_not_stdout_line(&self, line: &str) -> Result<()> {
+        L.l(format!("Checking for line {} in {} stdout to NOT occur", line, self.client_number.name()));
+        self.expect_not_line(&self.stdout, line)
+    }
+}
+
+#[derive(Debug)]
 pub struct TestServerConfigurator<'a> {
     binary: Binary,
     test_path: &'a Path,
     server_path: &'a Path,
-    server_number: &'a TestServerNumber,
+    server_number: &'a TestBinaryNumber,
 }
 
 impl<'a> TestServerConfigurator<'a> {
@@ -360,7 +554,7 @@ impl<'a> TestServerConfigurator<'a> {
         binary: Binary,
         test_path: &'a Path,
         server_path: &'a Path,
-        server_number: &'a TestServerNumber,
+        server_number: &'a TestBinaryNumber,
     ) -> Self {
         TestServerConfigurator {
             binary,
@@ -381,7 +575,7 @@ impl<'a> TestServerConfigurator<'a> {
         L.l(format!(
             "Preparing configuration file {:?} for {}",
             config_file_name,
-            self.server_number.server_name(),
+            self.server_number.name(),
         ));
         let config_file_name =
             config_file_name.unwrap_or_else(|| self.binary.config_file_name().unwrap());
@@ -392,7 +586,7 @@ impl<'a> TestServerConfigurator<'a> {
         template_context.insert("keys_path", &self.test_path.join("keys"));
         template_context.insert(
             "bind",
-            &format!("127.0.0.1:{}", self.server_number.server_port()),
+            &format!("127.0.0.1:{}", self.server_number.server_port().unwrap()),
         );
 
         context_configurator(&mut template_context)
@@ -414,12 +608,12 @@ impl<'a> TestServerConfigurator<'a> {
 #[derive(Debug)]
 struct TestServer {
     server_path: PathBuf,
-    server_number: TestServerNumber,
+    server_number: TestBinaryNumber,
     child: Child,
 }
 
 impl TestServer {
-    fn new(server_path: PathBuf, server_number: TestServerNumber, child: Child) -> Result<Self> {
+    fn new(server_path: PathBuf, server_number: TestBinaryNumber, child: Child) -> Result<Self> {
         Ok(TestServer {
             server_path,
             server_number,
@@ -434,7 +628,7 @@ impl TestServer {
             let res = client
                 .post(&format!(
                     "http://localhost:{}/ping",
-                    self.server_number.server_port()
+                    self.server_number.server_port().unwrap()
                 ))
                 .send()
                 .await;
@@ -467,17 +661,17 @@ impl Drop for TestServer {
         match self.child.wait() {
             Err(e) => L.l(format!(
                 "Error waiting for server {}: {:?}",
-                self.server_number.server_name(),
+                self.server_number.name(),
                 e
             )),
             Ok(v) if v.success() => L.l(format!(
                 "Server {} exited with code {:?} (SUCCESS)",
-                self.server_number.server_name(),
+                self.server_number.name(),
                 v.code()
             )),
             Ok(v) => L.l(format!(
                 "Server {} exited with code {:?} (NON-SUCCESS)",
-                self.server_number.server_name(),
+                self.server_number.name(),
                 v.code()
             )),
         }
@@ -487,7 +681,7 @@ impl Drop for TestServer {
             L.l(format!(
                 "{} for server {}:",
                 outfile,
-                self.server_number.server_name()
+                self.server_number.name()
             ));
             L.l("=========================================");
             match File::open(&path) {
