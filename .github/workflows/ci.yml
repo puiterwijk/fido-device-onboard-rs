@@ -80,3 +80,35 @@ jobs:
       - uses: wagoid/commitlint-github-action@v4
         with:
           failOnWarnings: true
+
+  interop_pri-fidoiot:
+    runs-on: ubuntu-latest
+    container: fedora:latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Cache
+        uses: actions/cache@v2
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+
+      - name: Install deps
+        run: |
+          dnf install -y make gcc openssl openssl-devel findutils
+
+      - name: Build
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+
+      - name: Run test
+        uses: actions-rs/cargo@v1
+        with:
+          command: test --test interop_pri_fidoiot -- --ignored
