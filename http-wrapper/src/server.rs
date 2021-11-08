@@ -285,6 +285,7 @@ where
 
     let token = token.map(|t| format!("Bearer {}", t));
 
+    log::trace!("Sending session token: {:?}", token);
     if let Some(token) = token {
         if !token.is_empty() {
             builder = builder.header("Authorization", token);
