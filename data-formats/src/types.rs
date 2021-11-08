@@ -650,6 +650,7 @@ impl TO2SetupDevicePayload {
 
 #[derive(Debug, Serialize_tuple, Deserialize)]
 pub struct TO2ProveDevicePayload {
+    #[serde(with = "serde_bytes")]
     b_key_exchange: Vec<u8>,
 }
 
