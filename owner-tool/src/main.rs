@@ -1,4 +1,10 @@
-use std::{convert::{TryFrom, TryInto}, fs, io::Write, path::Path, str::FromStr};
+use std::{
+    convert::{TryFrom, TryInto},
+    fs,
+    io::Write,
+    path::Path,
+    str::FromStr,
+};
 
 use anyhow::{bail, Context, Error, Result};
 use clap::{App, Arg, ArgMatches, SubCommand};
@@ -496,11 +502,19 @@ fn dump_voucher(matches: &ArgMatches) -> Result<(), Error> {
 
     if let Some(outform) = outform {
         let output = match outform {
-            "cose" => ov.serialize_data().context("Error serializing ownership voucher")?,
-            "pem" => ov.to_pem().context("Error serializing ownership voucher")?.as_bytes().to_vec(),
+            "cose" => ov
+                .serialize_data()
+                .context("Error serializing ownership voucher")?,
+            "pem" => ov
+                .to_pem()
+                .context("Error serializing ownership voucher")?
+                .as_bytes()
+                .to_vec(),
             _ => bail!("Invalid output format"),
         };
-        std::io::stdout().write_all(&output).context("Error writing output")?;
+        std::io::stdout()
+            .write_all(&output)
+            .context("Error writing output")?;
         return Ok(());
     }
 
