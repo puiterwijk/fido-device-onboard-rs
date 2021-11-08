@@ -1002,6 +1002,7 @@ impl KeyExchange {
 
             let (other_x, other_y, other_random) = self.decode_ecdh_bstr(other)?;
             if other_random.len() != suite.get_ecdh_random_size() {
+                eprintln!("Other random is invalid size. Received: {} bytes, expected {} bytes", other_random.len(), suite.get_ecdh_random_size());
                 return Err(Error::KeyExchangeError("Other random is invalid size"));
             }
             let other_x = BigNum::from_slice(&other_x)?;
