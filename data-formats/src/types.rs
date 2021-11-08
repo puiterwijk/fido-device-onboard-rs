@@ -1130,7 +1130,7 @@ impl FromStr for KexSuite {
 
     fn from_str(s: &str) -> Result<Self, Error> {
         match s {
-            "ECDH256" => Ok(KexSuite::Ecdh256),
+            "ECDH" | "ECDH256" => Ok(KexSuite::Ecdh256),
             "ECDH384" => Ok(KexSuite::Ecdh384),
             "DHKEXid14" => Ok(KexSuite::DhkexId14),
             "DHKEXid15" => Ok(KexSuite::DhkexId15),
@@ -1306,8 +1306,8 @@ impl FromStr for CipherSuite {
 
     fn from_str(s: &str) -> Result<Self, Error> {
         match s {
-            "A128GCM" => Ok(CipherSuite::A128Gcm),
-            "A256GCM" => Ok(CipherSuite::A256Gcm),
+            "AES128GCM" | "A128GCM" => Ok(CipherSuite::A128Gcm),
+            "AES256GCM" | "A256GCM" => Ok(CipherSuite::A256Gcm),
             other => Err(Error::InvalidSuiteName(other.to_string())),
         }
     }
