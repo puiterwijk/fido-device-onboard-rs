@@ -380,6 +380,7 @@ where
         .map(move |req, hdr| (req, hdr, session_store.clone()))
         .and_then(
             |(req, hdr, ses_store): (warp::hyper::body::Bytes, Option<String>, SessionStoreT)| async move {
+                log::trace!("Received session header: {:?}", hdr);
                 let ses = match hdr {
                     Some(val) =>  {
                         let val = if val.contains(' ') {
