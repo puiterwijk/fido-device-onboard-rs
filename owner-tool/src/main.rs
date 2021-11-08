@@ -1,9 +1,4 @@
-use std::{
-    convert::{TryFrom, TryInto},
-    fs,
-    path::Path,
-    str::FromStr,
-};
+use std::{convert::{TryFrom, TryInto}, fs, io::Write, path::Path, str::FromStr};
 
 use anyhow::{bail, Context, Error, Result};
 use clap::{App, Arg, ArgMatches, SubCommand};
@@ -100,7 +95,14 @@ async fn main() -> Result<()> {
                         .required(true)
                         .help("Path to the ownership voucher")
                         .index(1),
-                ),
+                )
+                .arg(
+                    Arg::with_name("outform")
+                        .required(false)
+                        .possible_values(&["pem", "cose"])
+                        .help("Output format")
+                        .index(2),
+                )
         )
         .subcommand(
             SubCommand::with_name("dump-device-credential")
@@ -485,11 +487,22 @@ fn initialize_device(matches: &ArgMatches) -> Result<(), Error> {
 
 fn dump_voucher(matches: &ArgMatches) -> Result<(), Error> {
     let ownershipvoucher_path = matches.value_of("path").unwrap();
+    let outform = matches.value_of("outform");
 
     let ov = {
         let cts = fs::read(ownershipvoucher_path).context("Error reading ownership voucher")?;
         OwnershipVoucher::from_pem_or_raw(&cts).context("Error deserializing ownership voucher")?
     };
+
+    if let Some(outform) = outform {
+        let output = match outform {
+            "cose" => ov.serialize_data().context("Error serializing ownership voucher")?,
+            "pem" => ov.to_pem().context("Error serializing ownership voucher")?.as_bytes().to_vec(),
+            _ => bail!("Invalid output format"),
+        };
+        std::io::stdout().write_all(&output).context("Error writing output")?;
+        return Ok(());
+    }
 
     let ov_header = ov.header();
     if ov_header.protocol_version() != PROTOCOL_VERSION {
