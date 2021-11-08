@@ -1673,7 +1673,7 @@ impl Serializable for COSESign {
 impl COSESign {
     fn new_from_inner(inner: COSESignInner) -> Result<Self, Error> {
         let mut contents = ParsedArray::deserialize_data(&inner.serialize_data()?)?;
-        contents.set_tag(Some(COSESIGN_TAG));
+        //contents.set_tag(Some(COSESIGN_TAG));
 
         Ok(COSESign {
             contents,
