@@ -757,7 +757,7 @@ pub struct TO2ProveOVHdrPayload {
     cached_hmac: HMac,
     cached_nonce5: Nonce,
     cached_b_signature_info: SigInfo,
-    cached_a_key_exchange: Vec<u8>,
+    cached_a_key_exchange: serde_bytes::ByteBuf,
 }
 
 impl Serializable for TO2ProveOVHdrPayload {
@@ -769,8 +769,7 @@ impl Serializable for TO2ProveOVHdrPayload {
         let cached_hmac = contents.get(2)?;
         let cached_nonce5 = contents.get(3)?;
         let cached_b_signature_info = contents.get(4)?;
-        let cached_a_key_exchange: serde_bytes::ByteBuf = contents.get(5)?;
-        let cached_a_key_exchange = cached_a_key_exchange.to_vec();
+        let cached_a_key_exchange = contents.get(5)?;
 
         Ok(TO2ProveOVHdrPayload {
             contents,
@@ -798,6 +797,8 @@ impl TO2ProveOVHdrPayload {
         b_signature_info: SigInfo,
         a_key_exchange: Vec<u8>,
     ) -> Result<Self, Error> {
+        let a_key_exchange = serde_bytes::ByteBuf::from(a_key_exchange);
+
         let mut contents = unsafe { ParsedArray::new() };
         contents.set(0, &ov_header)?;
         contents.set(1, &num_ov_entries)?;
