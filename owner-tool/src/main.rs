@@ -467,9 +467,7 @@ fn initialize_device(matches: &ArgMatches) -> Result<(), Error> {
         .context("Error building ownership voucher")?;
 
     // Write out the ownership voucher and device credential
-    let ov = ov
-        .serialize_data()
-        .context("Error serializing ownership voucher")?;
+    let ov = ov.to_pem().context("Error serializing device credential")?;
     let devcred = devcred
         .serialize_data()
         .context("Error serializing device credential")?;
@@ -490,7 +488,7 @@ fn dump_voucher(matches: &ArgMatches) -> Result<(), Error> {
 
     let ov = {
         let cts = fs::read(ownershipvoucher_path).context("Error reading ownership voucher")?;
-        OwnershipVoucher::deserialize_data(&cts).context("Error deserializing ownership voucher")?
+        OwnershipVoucher::from_pem_or_raw(&cts).context("Error deserializing ownership voucher")?
     };
 
     let ov_header = ov.header();
@@ -587,7 +585,7 @@ fn extend_voucher(matches: &ArgMatches) -> Result<(), Error> {
 
     let mut ov = {
         let ov = fs::read(ownershipvoucher_path).context("Error reading ownership voucher")?;
-        OwnershipVoucher::deserialize_data(&ov).context("Error deserializing ownership voucher")?
+        OwnershipVoucher::from_pem_or_raw(&ov).context("Error deserializing ownership voucher")?
     };
 
     let ov_header = ov.header();
@@ -756,7 +754,7 @@ async fn report_to_rendezvous(matches: &ArgMatches<'_>) -> Result<(), Error> {
                 ownershipvoucher_path
             )
         })?;
-        OwnershipVoucher::deserialize_data(&ov).context("Error deserializing Ownership Voucher")?
+        OwnershipVoucher::from_pem_or_raw(&ov).context("Error deserializing Ownership Voucher")?
     };
 
     let ov_header = ov.header();
