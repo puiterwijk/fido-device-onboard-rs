@@ -768,7 +768,8 @@ impl Serializable for TO2ProveOVHdrPayload {
         let cached_hmac = contents.get(2)?;
         let cached_nonce5 = contents.get(3)?;
         let cached_b_signature_info = contents.get(4)?;
-        let cached_a_key_exchange = contents.get(5)?;
+        let cached_a_key_exchange: serde_bytes::ByteBuf = contents.get(5)?;
+        let cached_a_key_exchange = cached_a_key_exchange.to_vec();
 
         Ok(TO2ProveOVHdrPayload {
             contents,
