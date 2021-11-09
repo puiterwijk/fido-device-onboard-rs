@@ -1072,7 +1072,7 @@ impl KeyExchange {
         let n = 1;
 
         let mut output = Vec::new();
-        for i in 1..n {
+        for i in 1..=n {
             let mut signer = Signer::new(cipher.kdf_digest(), &key)?;
 
             signer.update(&[i])?;
