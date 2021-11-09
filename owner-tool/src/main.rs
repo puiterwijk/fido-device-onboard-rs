@@ -105,9 +105,10 @@ async fn main() -> Result<()> {
                 .arg(
                     Arg::with_name("outform")
                         .required(false)
+                        .takes_value(true)
                         .possible_values(&["pem", "cose"])
                         .help("Output format")
-                        .index(2),
+                        .long("outform")
                 )
         )
         .subcommand(
