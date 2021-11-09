@@ -52,7 +52,7 @@ impl EncryptionKeys {
                 _ => panic!(),
             };
             CoseEncrypt0::new(plaintext, CipherConfiguration::Gcm, &k[..])
-                .map(|c| c.as_bytes(true))?
+                .map(|c| c.as_bytes(false))?
         }
     }
 
