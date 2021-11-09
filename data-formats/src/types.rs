@@ -1457,11 +1457,8 @@ where
         let mut res = self.other_claims.clone();
 
         if let Some(payload) = &self.payload {
-            res.insert(
-                HeaderKeys::EatFDO,
-                payload,
-            )
-            .expect("Error adding to res");
+            res.insert(HeaderKeys::EatFDO, payload)
+                .expect("Error adding to res");
         }
         res.insert(HeaderKeys::EatNonce, &self.nonce)
             .expect("Error adding to res");
@@ -1540,8 +1537,7 @@ fn eat_from_map<S>(mut claims: COSEHeaderMap) -> Result<EATokenPayload<S>, Error
 where
     S: PayloadState,
 {
-    let payload: Option<CborSimpleType> = match claims.0.remove(&(HeaderKeys::EatFDO as i64))
-    {
+    let payload: Option<CborSimpleType> = match claims.0.remove(&(HeaderKeys::EatFDO as i64)) {
         None => None,
         Some(val) => Some(serde_cbor::value::from_value(val)?),
     };
