@@ -18,16 +18,7 @@ use crate::{
     Serializable,
 };
 
-use openssl::{
-    bn::{BigNum, BigNumContext},
-    dh::Dh,
-    ec::{EcGroup, EcKey, EcPoint},
-    hash::{hash, MessageDigest},
-    nid::Nid,
-    pkey::Params,
-    rand::rand_bytes,
-    symm::Cipher,
-};
+use openssl::{bn::{BigNum, BigNumContext}, dh::Dh, ec::{EcGroup, EcKey, EcPoint}, hash::{hash, MessageDigest}, nid::Nid, pkey::{PKey, Params}, rand::rand_bytes, sign::Signer, symm::Cipher};
 use openssl_kdf::{Kdf, KdfKbMode, KdfMacType, KdfType};
 use serde::{Deserialize, Serialize};
 
@@ -1063,6 +1054,52 @@ impl KeyExchange {
     }
 
     pub fn derive_key(
+        &self,
+        our_side: KeyDeriveSide,
+        cipher: CipherSuite,
+        other: &[u8],
+    ) -> Result<DerivedKeys, Error> {
+        let (shared_secret, context_rand) = match self {
+            KeyExchange::Dhkex(..) => self.derive_key_dh(other)?,
+            KeyExchange::Ecdh(..) => self.derive_key_ecdh(our_side, other)?,
+        };
+
+        let key = PKey::hmac(&shared_secret)?;
+
+        let h = 256; //cipher.kdf_digest().output_len();
+        let l: u16 = 256;
+        let L2 = l.to_be_bytes();
+        let n = 1;
+
+        let mut output = Vec::new();
+        for i in 1..n {
+            let mut signer = Signer::new(cipher.kdf_digest(), &key)?;
+
+            signer.update(&[i])?;
+            signer.update(KEY_DERIVE_LABEL)?;
+            signer.update(&[0x00])?;
+            signer.update(KEY_DERIVE_CONTEXT_PREFIX)?;
+            signer.update(&context_rand)?;
+            signer.update(&L2)?;
+
+            output.extend_from_slice(signer.sign_to_vec()?.as_slice());
+        }
+
+        // output.shrink_to(cipher.required_keylen());
+        let key_out = output[..cipher.required_keylen()].to_vec();
+
+        if cipher.uses_combined_key() {
+            Ok(DerivedKeys::Combined { sevk: key_out })
+        } else {
+            let (svk, sek) = key_out.split_at(cipher.split_key_split_pos());
+            Ok(DerivedKeys::Split {
+                svk: svk.to_vec(),
+                sek: sek.to_vec(),
+            })
+        }
+    }
+
+    pub fn openssl_derive_key(
         &self,
         our_side: KeyDeriveSide,
         cipher: CipherSuite,
