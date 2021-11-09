@@ -34,7 +34,15 @@ impl SessionStore {
     async fn load_session(&self, token: String) -> Result<Option<Session>, SessionError> {
         let id = Session::id_from_cookie_value(&token)
             .map_err(|_| SessionError::Unspecified("Invalid cookie token".to_string()))?;
-        Ok(self.store.load_data(&id).await?.and_then(Session::validate))
+        Ok(self
+            .store
+            .load_data(&id)
+            .await?
+            .map(|mut x| {
+                x.set_cookie_value(token);
+                x
+            })
+            .and_then(Session::validate))
     }
 
     async fn store_session(&self, session: Session) -> Result<Option<String>, SessionError> {
