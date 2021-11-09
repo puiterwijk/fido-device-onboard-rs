@@ -1321,8 +1321,8 @@ impl FromStr for CipherSuite {
 impl ToString for CipherSuite {
     fn to_string(&self) -> String {
         match self {
-            CipherSuite::A128Gcm => "A128GCM".to_string(),
-            CipherSuite::A256Gcm => "A256GCM".to_string(),
+            CipherSuite::A128Gcm => "AES128GCM".to_string(),
+            CipherSuite::A256Gcm => "AES256GCM".to_string(),
         }
     }
 }
