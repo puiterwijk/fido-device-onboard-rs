@@ -142,11 +142,11 @@ pub enum HeaderKeys {
     EatNonce = 10,
     EatUeid = 11,
 
-    CUPHNonce = -17760701,       // IANA Pending
-    CUPHOwnerPubKey = -17760702, // IANA Pending
-    EUPHNonce = -17760709,       // IANA Pending
+    CUPHNonce = 256,       // IANA Pending
+    CUPHOwnerPubKey = 257, // IANA Pending
+    EUPHNonce = -259,       // IANA Pending
 
-    EatFDO = -17760707,
+    EatFDO = -257,
 }
 
 impl HeaderKeys {
