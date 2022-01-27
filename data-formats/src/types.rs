@@ -1173,7 +1173,7 @@ impl KeyExchange {
         let mut salt = Vec::with_capacity(KEY_DERIVE_CONTEXT_PREFIX.len() + context_rand.len() + 2);
         salt.extend_from_slice(KEY_DERIVE_CONTEXT_PREFIX);
         salt.extend_from_slice(&context_rand);
-        salt.extend_from_slice(&(cipher.required_keylen() as u16).to_be_bytes());
+        salt.extend_from_slice(&((cipher.required_keylen() * 8) as u16).to_be_bytes());
 
         #[cfg(not(feature = "use_noninteroperable_kdf"))]
         log::warn!("Using non-interoperable key derivation");
