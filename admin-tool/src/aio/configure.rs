@@ -436,7 +436,9 @@ pub(super) fn generate_configs_and_keys(
             for address in
                 nix::ifaddrs::getifaddrs().context("Error getting network interface list")?
             {
-                if let Some(nix::sys::socket::SockAddr::Inet(address)) = address.address {
+                if let Some(nix::sys::socket::AddressFamily::Inet) = address.address.family() {
+                }
+                if let Some(nix::sys::socket::SockaddrStorage::Inet(address)) = address.address {
                     let address = address.ip().to_std();
 
                     if address.is_unspecified() {
